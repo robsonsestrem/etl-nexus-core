@@ -1,24 +1,23 @@
 package com.etl.importer.service;
 
-import com.etl.importer.domain.Patient;
 import com.etl.importer.excel.ExcelPatientRow;
-import com.etl.importer.repository.PatientRepository;
-
+import com.etl.importer.domain.Patient;
+import com.etl.importer.util.DateUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.mongodb.core.BulkOperations;
-import org.springframework.data.mongodb.core.BulkOperations.BulkMode;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
-import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
+import java.time.format.DateTimeParseException;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.springframework.data.mongodb.core.query.Query.query;
 
 @Service
 public class PatientImportService {
@@ -28,46 +27,53 @@ public class PatientImportService {
     @Autowired
     private MongoTemplate mongoTemplate;
 
-    @Async("patientImportExecutor")    
+    private final AtomicInteger errorCount = new AtomicInteger(0);
+
+    @Async("patientImportExecutor")
     public void importPatients(List<ExcelPatientRow> rows) {
         if (rows == null || rows.isEmpty()) {
             log.warn("No rows to import");
             return;
         }
-        
-        // fluxo atual usa BulkOperations com upsert, que é superior a queries individuais
-        var bulkOps = mongoTemplate.bulkOps(BulkMode.UNORDERED, Patient.class);
-        int successCount = 0;
-        int errorCount = 0;
+
+        errorCount.set(0);
+        log.info("Starting import of {} patient rows", rows.size());
+
+        var bulkOps = mongoTemplate.bulkOps(BulkOperations.BulkMode.UNORDERED, Patient.class);
 
         for (var row : rows) {
             try {
                 var patient = new Patient();
-                patient.setNameFromString(row.nome());
-                patient.setBirthdateFromString(row.dataNascimento());
-                patient.setSanitizedCpf(row.cpf());
+                patient.setNameFromString(row.getNome());
+                patient.setSanitizedCpf(row.getCpf());
+                patient.setDataNascimento(DateUtils.convertToLocalDate(row.getDataNascimento()));
+                patient.setMatriculaSap(row.getMatriculaSap());
+                patient.setChaveUnica(row.getChaveUnica());
 
-                var criteria = Criteria.where("cpf").is(patient.getCpf());
-                var update = Update.update("name", patient.getName())
-                        .set("birthdate", patient.getBirthdate())
-                        .set("cpf", patient.getCpf())
-                        .set("matriculaSap", row.matriculaSap())
-                        .set("chaveUnica", row.chaveUnica());
+                var cpfSanitized = patient.getCpf();
+                var criteria = Criteria.where("cpf").is(cpfSanitized);
+                var update = Update.update("nome", patient.getNome())
+                        .set("cpf", cpfSanitized)
+                        .set("dataNascimento", patient.getDataNascimento())
+                        .set("matriculaSap", patient.getMatriculaSap())
+                        .set("chaveUnica", patient.getChaveUnica());
 
-                bulkOps.upsert(new Query(criteria), update);
-                successCount++;
-                log.debug("Added upsert for patient with CPF: {}", patient.getCpf());
+                bulkOps.upsert(query(criteria), update);
+
+            } catch (DateTimeParseException e) {
+                log.error("Invalid date format for row CPF={}: {}", row.getCpf(), e.getMessage());
+                errorCount.incrementAndGet();
             } catch (Exception e) {
-                errorCount++;
-                log.error("Error processing row for CPF: {} - {}", row.cpf(), e.getMessage(), e);
+                log.error("Error processing row CPF={}: {}", row.getCpf(), e.getMessage(), e);
+                errorCount.incrementAndGet();
             }
         }
 
-        try {
-            var results = bulkOps.execute();
-            log.info("Bulk operation completed. Success: {}, Errors: {}", successCount, errorCount);
-        } catch (Exception e) {
-            log.error("Bulk operation execution failed", e);
+        if (!rows.isEmpty()) {
+            bulkOps.execute();
+            log.info("Import completed. Total rows: {}, errors: {}", rows.size(), errorCount.get());
+        } else {
+            log.warn("No rows to import");
         }
     }
 }

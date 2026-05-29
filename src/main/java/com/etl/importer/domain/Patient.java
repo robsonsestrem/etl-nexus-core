@@ -7,11 +7,10 @@ import org.springframework.data.mongodb.core.mapping.Field;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 
 @Data
-@Document(collection = "Patient")
+@Document(collection = "patient")
 public class Patient {
 
     @Id
@@ -29,11 +28,11 @@ public class Patient {
     @Field("gender")
     private String gender = "UNKNOWN";
 
-    @Field("birthdate")
-    private LocalDate birthdate;
+    @Field("dataNascimento")
+    private LocalDate dataNascimento;
 
-    @Field("name")
-    private String[] name;
+    @Field("nome")
+    private String[] nome;
 
     @Field("cpf")
     private String cpf;
@@ -50,16 +49,19 @@ public class Patient {
         this.updatedAt = LocalDateTime.now();
     }
 
-    public void setBirthdateFromString(String dataNascimento) {
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
-        this.birthdate = LocalDate.parse(dataNascimento, formatter);
-    }
-
     public void setNameFromString(String nomeCompleto) {
-        this.name = nomeCompleto.split(" ");
+        if (nomeCompleto != null && !nomeCompleto.isEmpty()) {
+            this.nome = nomeCompleto.split(" ");
+        } else {
+            this.nome = new String[0];
+        }
     }
 
     public void setSanitizedCpf(String cpf) {
-        this.cpf = cpf.replaceAll("[^0-9]", "");
+        if (cpf != null) {
+            this.cpf = cpf.replaceAll("[^0-9]", "");
+        } else {
+            this.cpf = null;
+        }
     }
 }
