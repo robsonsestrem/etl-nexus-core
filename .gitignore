@@ -1,24 +1,158 @@
-# Compiled class file
+# =============================================================================
+# JAVA & MAVEN
+# =============================================================================
+# Compiled class files
 *.class
 
-# Log file
+# Compiled Java sources (backup)
+*.java~
+
+# Maven build artifacts
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+build.log
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# Maven local repository (never commit dependencies)
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# =============================================================================
+# SPRING BOOT
+# =============================================================================
+# Spring Boot specific logs and temp files
 *.log
+logs/
+spring-boot-devtools-restart.log
 
-# BlueJ files
-*.ctxt
+# Actuator endpoints (if generated)
+/actuator
 
-# Mobile Tools for Java (J2ME)
-.mtj.tmp/
+# Thymeleaf cache (if used)
+templates.cache
 
-# Package Files #
-*.jar
-*.war
-*.nar
-*.ear
-*.zip
-*.tar.gz
-*.rar
+# =============================================================================
+# MONGODB & DATABASE
+# =============================================================================
+# MongoDB temporary files (if running locally)
+mongod.lock
+*.wt
+*.journal
 
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
-hs_err_pid*
-replay_pid*
+# Database dumps (sensitive!)
+*.dump
+*.bson
+data/db/
+
+# =============================================================================
+# EASYEXCEL & TEMPORARY FILES
+# =============================================================================
+# EasyExcel temporary extraction files
+*.tmp
+*.temp
+easyexcel-temp/
+excel-cache/
+
+# Office file locks (when opened in Excel/LibreOffice)
+~$*.xlsx
+~$*.xls
+*.xltx
+*.xltm
+
+# =============================================================================
+# IDEs & EDITORES
+# =============================================================================
+# VS Code
+.vscode/
+application.yml
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Eclipse
+.classpath
+.project
+.settings/
+*.launch
+.apt_generated/
+.apt_generated_test/
+
+# NetBeans
+nbproject/private/
+nbbuild/
+dist/
+nbdist/
+*.nb-gradle/
+
+# =============================================================================
+# SECRETS & ENVIRONMENT
+# =============================================================================
+# Environment variables and secrets (CRITICAL!)
+.env
+.env.local
+.env.*.local
+*.env
+*.env.*
+secrets/
+credentials.json
+application-secret.properties
+application-prod.yml
+
+# =============================================================================
+# TESTS & COVERAGE
+# =============================================================================
+# Test reports
+surefire-reports/
+failsafe-reports/
+test-output/
+
+# Coverage reports
+jacoco.exec
+jacoco/
+coverage/
+cobertura.ser
+
+# =============================================================================
+# OS & EDITOR TEMP FILES
+# =============================================================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.fuse_hidden*
+.Trash-*
+.nfs*
+
+# =============================================================================
+# PROJECT SPECIFIC (ETL NEXUS CORE)
+# =============================================================================
+# Upload directory (from your controller)
+C:/temp/uploads/
+temp/uploads/
+*.xlsx~
+*.xls~
+
+# Batch processing temp files
+batch-temp/
+*.batch.tmp

@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ETL Nexus Core - Importador de Pacientes</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background-color: #f5f7fa;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+    }
+    .container {
+      max-width: 800px;
+      width: 100%;
+      background-color: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      padding: 40px;
+    }
+    h1 {
+      text-align: center;
+      color: #2c3e50;
+      margin-bottom: 30px;
+      font-size: 1.8rem;
+    }
+    h2 {
+      color: #34495e;
+      margin-bottom: 15px;
+      font-size: 1.3rem;
+      border-bottom: 2px solid #ecf0f1;
+      padding-bottom: 8px;
+    }
+    .section {
+      margin-bottom: 30px;
+    }
+    .status-indicator {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+    .status-connected {
+      background-color: #2ecc71;
+    }
+    .status-disconnected {
+      background-color: #e74c3c;
+    }
+    .status-connecting {
+      background-color: #f1c40f;
+    }
+    .btn {
+      background-color: #3498db;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 1rem;
+      transition: background-color 0.2s;
+      margin-right: 10px;
+    }
+    .btn:hover {
+      background-color: #2980b9;
+    }
+    .btn:disabled {
+      background-color: #bdc3c7;
+      cursor: not-allowed;
+    }
+    .btn-upload {
+      background-color: #27ae60;
+    }
+    .btn-upload:hover {
+      background-color: #1e8449;
+    }
+    .status-text {
+      margin-top: 10px;
+      font-size: 0.9rem;
+      color: #7f8c8d;
+    }
+    .error-text {
+      color: #e74c3c;
+      margin-top: 8px;
+      font-size: 0.9rem;
+    }
+    .file-input {
+      margin-bottom: 15px;
+    }
+    input[type="file"] {
+      border: 1px solid #ccc;
+      padding: 8px;
+      border-radius: 4px;
+      width: 100%;
+    }
+    .upload-status {
+      margin-top: 15px;
+    }
+    .batch-id {
+      background-color: #ecf0f1;
+      padding: 8px 12px;
+      border-radius: 4px;
+      margin-top: 10px;
+      font-family: monospace;
+      display: inline-block;
+    }
+    @media (max-width: 600px) {
+      .container {
+        padding: 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>ETL Nexus Core - Importador de Pacientes</h1>
+
+    <!-- Seção 1: Status MongoDB -->
+    <div class="section">
+      <h2>Status MongoDB</h2>
+      <div id="mongoStatusDiv">
+        <span class="status-indicator" id="statusIndicator"></span>
+        <span id="statusLabel">Verificando...</span>
+      </div>
+      <div style="margin-top: 15px;">
+        <button class="btn" id="connectBtn" onclick="connectMongo()">Conectar MongoDB</button>
+      </div>
+      <div id="statusMessage" class="status-text"></div>
+      <div id="errorMessage" class="error-text"></div>
+    </div>
+
+    <!-- Seção 2: Upload de Arquivo Excel -->
+    <div class="section">
+      <h2>Upload de Arquivo Excel</h2>
+      <div class="file-input">
+        <input type="file" id="fileInput" accept=".xlsx,.xls" />
+      </div>
+      <button class="btn btn-upload" id="uploadBtn" onclick="uploadFile()">Enviar</button>
+      <div id="uploadStatus" class="upload-status"></div>
+      <div id="batchIdDisplay" class="batch-id" style="display: none;"></div>
+    </div>
+  </div>
+
+  <script>
+    // Função para atualizar indicador de status
+    function updateMongoUI(status, error = null) {
+      const indicator = document.getElementById('statusIndicator');
+      const label = document.getElementById('statusLabel');
+      const statusMsg = document.getElementById('statusMessage');
+      const errorMsg = document.getElementById('errorMessage');
+      const connectBtn = document.getElementById('connectBtn');
+
+      // Remove classes anteriores
+      indicator.className = 'status-indicator';
+      
+      let statusText = '';
+      switch(status) {
+        case 'CONNECTED':
+          indicator.classList.add('status-connected');
+          label.textContent = 'CONNECTED';
+          statusText = 'MongoDB está conectado.';
+          connectBtn.disabled = true;
+          break;
+        case 'DISCONNECTED':
+          indicator.classList.add('status-disconnected');
+          label.textContent = 'DISCONNECTED';
+          statusText = 'MongoDB não está conectado.';
+          connectBtn.disabled = false;
+          break;
+        case 'CONNECTING':
+          indicator.classList.add('status-connecting');
+          label.textContent = 'CONNECTING';
+          statusText = 'Tentando conectar...';
+          connectBtn.disabled = true;
+          break;
+        default:
+          indicator.classList.add('status-disconnected');
+          label.textContent = 'DESCONHECIDO';
+          statusText = 'Status desconhecido.';
+          connectBtn.disabled = false;
+      }
+
+      statusMsg.textContent = statusText;
+      if (error) {
+        errorMsg.textContent = 'Erro: ' + error;
+      } else {
+        errorMsg.textContent = '';
+      }
+    }
+
+    // Função para verificar status do MongoDB via GET
+    async function checkMongoStatus() {
+      try {
+        const response = await fetch('/api/mongo/status');
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const data = await response.json();
+        // Supondo que o backend retorne { status: 'CONNECTED' | 'DISCONNECTED' }
+        updateMongoUI(data.status, data.error || null);
+      } catch (err) {
+        updateMongoUI('DISCONNECTED', err.message);
+      }
+    }
+
+    // Função para conectar ao MongoDB via POST
+    async function connectMongo() {
+      updateMongoUI('CONNECTING');
+      try {
+        const response = await fetch('/api/mongo/connect', { method: 'POST' });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const data = await response.json();
+        if (data.status === 'CONNECTED') {
+          updateMongoUI('CONNECTED');
+        } else {
+          updateMongoUI('DISCONNECTED', data.error || 'Falha ao conectar');
+        }
+      } catch (err) {
+        updateMongoUI('DISCONNECTED', err.message);
+      }
+    }
+
+    // Função para upload de arquivo Excel
+    async function uploadFile() {
+      const fileInput = document.getElementById('fileInput');
+      const uploadStatus = document.getElementById('uploadStatus');
+      const batchIdDisplay = document.getElementById('batchIdDisplay');
+
+      if (!fileInput.files || fileInput.files.length === 0) {
+        uploadStatus.innerHTML = '<span style="color:red;">Selecione um arquivo Excel.</span>';
+        return;
+      }
+
+      const file = fileInput.files[0];
+      const formData = new FormData();
+      formData.append('file', file);
+
+      uploadStatus.innerHTML = '<span>Enviando...</span>';
+      batchIdDisplay.style.display = 'none';
+
+      try {
+        const response = await fetch('/api/patients/import', {
+          method: 'POST',
+          body: formData
+        });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const data = await response.json();
+        uploadStatus.innerHTML = '<span style="color:green;">Upload realizado com sucesso!</span>';
+        if (data.batchId) {
+          batchIdDisplay.textContent = 'Batch ID: ' + data.batchId;
+          batchIdDisplay.style.display = 'inline-block';
+        }
+      } catch (err) {
+        uploadStatus.innerHTML = '<span style="color:red;">Erro no upload: ' + err.message + '</span>';
+      }
+    }
+
+    // Auto-check ao carregar a página e atualizar a cada 5 segundos
+    document.addEventListener('DOMContentLoaded', () => {
+      checkMongoStatus();
+      setInterval(checkMongoStatus, 5000);
+    });
+  </script>
+</body>
+</html>
