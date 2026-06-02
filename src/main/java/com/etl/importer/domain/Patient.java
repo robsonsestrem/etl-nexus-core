@@ -1,65 +1,43 @@
 package com.etl.importer.domain;
 
-import lombok.Data;
-import org.springframework.data.annotation.Id;
-import org.springframework.data.mongodb.core.mapping.Document;
-import org.springframework.data.mongodb.core.mapping.Field;
-
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.UUID;
+import java.util.ArrayList;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.mapping.Document;
 
 @Data
-@Document(collection = "Patient")
+@NoArgsConstructor
+@AllArgsConstructor
+@Document(collection = "patient")
 public class Patient {
 
     @Id
-    private String id;
+    private String _id;
 
-    @Field("active")
-    private Boolean active = true;
+    private boolean active;
 
-    @Field("createdAt")
+    private String healthmapCompanyCode;
+
+    private String healthmapCompanyName;
+
+    private String conexaCompanyName;
+
     private LocalDateTime createdAt;
 
-    @Field("updatedAt")
     private LocalDateTime updatedAt;
 
-    @Field("gender")
-    private String gender = "UNKNOWN";
+    private String gender;
 
-    @Field("birthdate")
     private LocalDate birthdate;
 
-    @Field("name")
-    private String[] name;
+    private ArrayList<PatientName> name;
 
-    @Field("cpf")
-    private String cpf;
-
-    @Field("matriculaSap")
-    private String matriculaSap;
-
-    @Field("chaveUnica")
-    private String chaveUnica;
-
-    public Patient() {
-        this.id = UUID.randomUUID().toString();
-        this.createdAt = LocalDateTime.now();
-        this.updatedAt = LocalDateTime.now();
-    }
-
-    public void setBirthdateFromString(String dataNascimento) {
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
-        this.birthdate = LocalDate.parse(dataNascimento, formatter);
-    }
-
-    public void setNameFromString(String nomeCompleto) {
-        this.name = nomeCompleto.split(" ");
-    }
-
-    public void setSanitizedCpf(String cpf) {
-        this.cpf = cpf.replaceAll("[^0-9]", "");
-    }
+    private ArrayList<Identifier> identifiers;
+    
 }
