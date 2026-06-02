@@ -3,9 +3,11 @@ package com.etl.importer.controller;
 import com.alibaba.excel.EasyExcel;
 import com.etl.importer.excel.PatientExcelListener;
 import com.etl.importer.service.PatientImportService;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -13,6 +15,8 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/patients")
@@ -23,36 +27,59 @@ public class PatientImportController {
     @Autowired
     private PatientImportService patientImportService;
 
-    @PostMapping("/import")
-    public ResponseEntity<?> importPatients(@RequestParam("file") MultipartFile file) {
+    @PostMapping(value = "/import", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<Map<String, Object>> importPatients(@RequestParam("file") MultipartFile file) {
         log.info("Recebendo requisição de importação de pacientes. Arquivo: {}", file.getOriginalFilename());
 
         if (file.isEmpty()) {
             log.warn("Arquivo vazio enviado.");
-            return ResponseEntity.badRequest().body("Arquivo vazio.");
+            return ResponseEntity.badRequest()
+                    .body(Map.of(
+                            "success", false,
+                            "error", "Arquivo vazio.",
+                            "timestamp", System.currentTimeMillis()
+                    ));
         }
 
         Path tempFilePath = null;
         try {
-            // Salvar arquivo temporário
+            // Salva arquivo temporário
             tempFilePath = Files.createTempFile("patients_", ".xlsx");
             file.transferTo(tempFilePath.toFile());
             log.debug("Arquivo salvo temporariamente em: {}", tempFilePath);
 
-            // Criar listener com o service injetado
+            // Cria listener com o service injetado
             var listener = new PatientExcelListener(patientImportService);
 
-            // Processar arquivo Excel
+            // Processa arquivo Excel
             EasyExcel.read(tempFilePath.toFile(), listener).sheet().doRead();
 
-            log.info("Importação de pacientes concluída com sucesso. Total processado: {}");
-            return ResponseEntity.ok("Importação concluída. Registros processados.");
+            int processedCount = listener.getProcessedCount();
+            String batchId = listener.getBatchId();
+
+            log.info("Importação de pacientes concluída com sucesso. Total processado: {}", processedCount);
+                        
+            var responseBody = new HashMap<String, Object>();
+            responseBody.put("success", true);
+            responseBody.put("message", "Importação concluída com sucesso.");
+            responseBody.put("processedCount", processedCount);
+            if (batchId != null && !batchId.isEmpty()) {
+                responseBody.put("batchId", batchId);
+            }
+            responseBody.put("timestamp", System.currentTimeMillis());
+
+            return ResponseEntity.ok(responseBody);
 
         } catch (Exception e) {
             log.error("Erro durante importação de pacientes: {}", e.getMessage(), e);
-            return ResponseEntity.status(500).body("Erro interno: " + e.getMessage());
-        } finally {
-            // Limpar arquivo temporário
+                        
+            return ResponseEntity.status(500)
+                    .body(Map.of(
+                            "success", false,
+                            "error", "Erro interno: " + e.getMessage(),
+                            "timestamp", System.currentTimeMillis()
+                    ));
+        } finally {            
             if (tempFilePath != null) {
                 try {
                     Files.deleteIfExists(tempFilePath);

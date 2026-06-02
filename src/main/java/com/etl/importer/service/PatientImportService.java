@@ -1,23 +1,24 @@
 package com.etl.importer.service;
 
-import com.etl.importer.excel.ExcelPatientRow;
+import com.etl.importer.domain.Identifier;
+import com.etl.importer.domain.IdentifierType;
 import com.etl.importer.domain.Patient;
-import com.etl.importer.util.DateUtils;
+import com.etl.importer.excel.ExcelPatientRow;
+import com.etl.importer.mapper.PatientMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.mongodb.core.BulkOperations;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.springframework.data.mongodb.core.query.Query.query;
 
 @Service
 public class PatientImportService {
@@ -27,53 +28,124 @@ public class PatientImportService {
     @Autowired
     private MongoTemplate mongoTemplate;
 
-    private final AtomicInteger errorCount = new AtomicInteger(0);
-
     @Async("patientImportExecutor")
     public void importPatients(List<ExcelPatientRow> rows) {
         if (rows == null || rows.isEmpty()) {
-            log.warn("No rows to import");
+            log.warn("Nenhuma linha para importar");
             return;
         }
 
-        errorCount.set(0);
-        log.info("Starting import of {} patient rows", rows.size());
+        AtomicInteger errorCount = new AtomicInteger(0);
+        BulkOperations bulkOps = mongoTemplate.bulkOps(BulkOperations.BulkMode.UNORDERED, Patient.class);
 
-        var bulkOps = mongoTemplate.bulkOps(BulkOperations.BulkMode.UNORDERED, Patient.class);
-
-        for (var row : rows) {
+        for (ExcelPatientRow row : rows) {
+            log.info("======================================================================");
             try {
-                var patient = new Patient();
-                patient.setNameFromString(row.getNome());
-                patient.setSanitizedCpf(row.getCpf());
-                patient.setDataNascimento(DateUtils.convertToLocalDate(row.getDataNascimento()));
-                patient.setMatriculaSap(row.getMatriculaSap());
-                patient.setChaveUnica(row.getChaveUnica());
+                Patient patient = PatientMapper.toDomain(row);
+                String cpf = extractIdentifierValue(patient.getIdentifiers(), IdentifierType.CPF.name());
+                String carteirinha = extractIdentifierValue(patient.getIdentifiers(), IdentifierType.CARTEIRINHA.name());
 
-                var cpfSanitized = patient.getCpf();
-                var criteria = Criteria.where("cpf").is(cpfSanitized);
-                var update = Update.update("nome", patient.getNome())
-                        .set("cpf", cpfSanitized)
-                        .set("dataNascimento", patient.getDataNascimento())
-                        .set("matriculaSap", patient.getMatriculaSap())
-                        .set("chaveUnica", patient.getChaveUnica());
+                log.info("Processando paciente: :: Nome: " + patient.getName().get(0).getGiven().get(0) + " :: CPF: " + cpf + " :: CARTEIRINHA: " + carteirinha);
 
-                bulkOps.upsert(query(criteria), update);
+                if (cpf != null || carteirinha != null) {
+                    Criteria criteria = buildSearchCriteria(cpf, carteirinha);
+                    Query query = null;
 
-            } catch (DateTimeParseException e) {
-                log.error("Invalid date format for row CPF={}: {}", row.getCpf(), e.getMessage());
-                errorCount.incrementAndGet();
+                    if (criteria != null) {
+                        query = Query.query(criteria);
+                    }         
+
+                    if (query != null) {
+                        Patient existingPatient = mongoTemplate.findOne(query, Patient.class);
+                        
+                        if (existingPatient != null) {                        
+                            List<Identifier> mergedIdentifiers = mergeIdentifiers(
+                                existingPatient.getIdentifiers(), 
+                                patient.getIdentifiers()
+                            );
+                            
+                            Update update = new Update().set("identifiers", mergedIdentifiers);
+                            bulkOps.upsert(query, update);
+                            log.debug("Documento encontrado - UPDATE identifiers com merge");
+                        } else {                        
+                            bulkOps.insert(patient);
+                            log.debug("Documento não encontrado - INSERT novo");
+                        }
+                    }
+                } else {                    
+                    bulkOps.insert(patient);
+                    log.warn("Paciente inserido sem CPF e CARTEIRINHA");
+                }
             } catch (Exception e) {
-                log.error("Error processing row CPF={}: {}", row.getCpf(), e.getMessage(), e);
                 errorCount.incrementAndGet();
+                log.error("Erro ao processar linha: {}", row, e);
             }
         }
 
-        if (!rows.isEmpty()) {
+        try {
             bulkOps.execute();
-            log.info("Import completed. Total rows: {}, errors: {}", rows.size(), errorCount.get());
-        } else {
-            log.warn("No rows to import");
+            log.info("Importação concluída. Total: {}, Erros: {}", rows.size(), errorCount.get());
+        } catch (Exception e) {
+            log.error("Erro ao executar BulkOperations", e);
         }
+    }
+
+    private Criteria buildSearchCriteria(String cpf, String carteirinha) {
+        if (cpf != null && carteirinha != null) {            
+            return new Criteria().orOperator(
+                    Criteria.where("identifiers").elemMatch(
+                            Criteria.where("type").is(IdentifierType.CPF.name()).and("value").is(cpf)
+                    ),
+                    Criteria.where("identifiers").elemMatch(
+                            Criteria.where("type").is(IdentifierType.CARTEIRINHA.name()).and("value").is(carteirinha)
+                    )
+            );
+        } else if (cpf != null) {
+            return Criteria.where("identifiers").elemMatch(
+                    Criteria.where("type").is(IdentifierType.CPF.name()).and("value").is(cpf)
+            );
+        } else {
+            return Criteria.where("identifiers").elemMatch(
+                    Criteria.where("type").is(IdentifierType.CARTEIRINHA.name()).and("value").is(carteirinha)
+            );
+        }
+    }
+
+    private String extractIdentifierValue(List<Identifier> identifiers, String type) {
+        return identifiers.stream()
+                .filter(id -> type.equals(id.getType()))
+                .map(Identifier::getValue)
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * Merge de identifiers: preserva existentes e adiciona novos do Excel     
+     */
+    private List<Identifier> mergeIdentifiers(List<Identifier> existing, List<Identifier> newList) {
+        List<Identifier> merged = new ArrayList<>(existing);
+
+        for (Identifier newId : newList) {
+            if (newId.getValue() == null || newId.getValue().isEmpty()) {
+                log.warn("Identifier do Excel com valor vazio, ignorando. Type: {}, SystemIdentification: {}", newId.getType(), newId.getSystem());
+                continue;
+            }
+
+            String newType = newId.getType();
+                        
+            if (IdentifierType.CPF.name().equals(newType) || 
+                IdentifierType.CARTEIRINHA.name().equals(newType)) {
+                
+                boolean alreadyExists = existing.stream().anyMatch(existingId -> existingId.getType().equals(newType));
+                
+                if (!alreadyExists) {
+                    merged.add(newId);                    
+                }
+            } else {                
+                merged.add(newId);                
+            }
+        }
+
+        return merged;
     }
 }

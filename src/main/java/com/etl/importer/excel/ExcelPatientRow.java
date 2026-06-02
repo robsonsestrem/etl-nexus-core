@@ -7,7 +7,7 @@ import lombok.Data;
 public class ExcelPatientRow {
 
     @ExcelProperty("SEQ")
-    private Integer seq;
+    private String seq;
 
     @ExcelProperty("CONTRATO")
     private String contrato;
@@ -34,7 +34,7 @@ public class ExcelPatientRow {
     private String nome;
 
     @ExcelProperty("DATA_DE_NASCIMENTO")
-    private String dataNascimento;
+    private String dataDeNascimento;
 
     @ExcelProperty("DATA_ADESAO")
     private String dataAdesao;
@@ -44,24 +44,32 @@ public class ExcelPatientRow {
 
     @ExcelProperty("TIPO_DEPENDENTE")
     private String tipoDependente;
-
-    /**
-     * Remove caracteres especiais do CPF, mantendo apenas dígitos.
-     */
-    public void sanitizeCpf() {
-        if (this.cpf != null) {
-            this.cpf = this.cpf.replaceAll("\\D", "");
-        }
+    
+    public String sanitizeCpf() {
+        if (this.cpf == null) return null;
+        return this.cpf.replaceAll("[^\\d]", "");
     }
 
-    /**
-     * Divide o nome completo em partes (array de strings) usando espaço como delimitador.
-     * Essa é uma adapatação para o campo "nome" que é armazenado como array de strings no MongoDB, mas vem como string no Excel.     
-     */
     public String[] getNomeArray() {
-        if (this.nome == null || this.nome.isEmpty()) {
-            return new String[0];
+        if (this.nome == null || this.nome.trim().isEmpty()) return new String[0];
+        return this.nome.trim().split("\\s+");
+    }
+    
+    public void sanitizeAllIdentifiers() {
+        if (this.cpf != null) {
+            this.cpf = this.cpf.replaceAll("[^a-zA-Z0-9]", "");
         }
-        return this.nome.split("\\s+");
+        if (this.carteirinha != null) {
+            this.carteirinha = this.carteirinha.replaceAll("[^a-zA-Z0-9]", "");
+        }
+        if (this.matriculaFuncional != null) {
+            this.matriculaFuncional = this.matriculaFuncional.replaceAll("[^a-zA-Z0-9]", "");
+        }
+        if (this.chaveUnica != null) {
+            this.chaveUnica = this.chaveUnica.replaceAll("[^a-zA-Z0-9]", "");
+        }
+        if (this.matriculaSap != null) {
+            this.matriculaSap = this.matriculaSap.replaceAll("[^a-zA-Z0-9]", "");
+        }
     }
 }

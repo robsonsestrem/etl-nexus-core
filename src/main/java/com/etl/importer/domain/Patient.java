@@ -1,67 +1,43 @@
 package com.etl.importer.domain;
 
-import lombok.Data;
-import org.springframework.data.annotation.Id;
-import org.springframework.data.mongodb.core.mapping.Document;
-import org.springframework.data.mongodb.core.mapping.Field;
-
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.UUID;
+import java.util.ArrayList;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.mapping.Document;
 
 @Data
+@NoArgsConstructor
+@AllArgsConstructor
 @Document(collection = "patient")
 public class Patient {
 
     @Id
-    private String id;
+    private String _id;
 
-    @Field("active")
-    private Boolean active = true;
+    private boolean active;
 
-    @Field("createdAt")
+    private String healthmapCompanyCode;
+
+    private String healthmapCompanyName;
+
+    private String conexaCompanyName;
+
     private LocalDateTime createdAt;
 
-    @Field("updatedAt")
     private LocalDateTime updatedAt;
 
-    @Field("gender")
-    private String gender = "UNKNOWN";
+    private String gender;
 
-    @Field("dataNascimento")
-    private LocalDate dataNascimento;
+    private LocalDate birthdate;
 
-    @Field("nome")
-    private String[] nome;
+    private ArrayList<PatientName> name;
 
-    @Field("cpf")
-    private String cpf;
-
-    @Field("matriculaSap")
-    private String matriculaSap;
-
-    @Field("chaveUnica")
-    private String chaveUnica;
-
-    public Patient() {
-        this.id = UUID.randomUUID().toString();
-        this.createdAt = LocalDateTime.now();
-        this.updatedAt = LocalDateTime.now();
-    }
-
-    public void setNameFromString(String nomeCompleto) {
-        if (nomeCompleto != null && !nomeCompleto.isEmpty()) {
-            this.nome = nomeCompleto.split(" ");
-        } else {
-            this.nome = new String[0];
-        }
-    }
-
-    public void setSanitizedCpf(String cpf) {
-        if (cpf != null) {
-            this.cpf = cpf.replaceAll("[^0-9]", "");
-        } else {
-            this.cpf = null;
-        }
-    }
+    private ArrayList<Identifier> identifiers;
+    
 }

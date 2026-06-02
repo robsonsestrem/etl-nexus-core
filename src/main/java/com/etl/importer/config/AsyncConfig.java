@@ -20,9 +20,11 @@ public class AsyncConfig {
         var executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(2);
         executor.setMaxPoolSize(4);
-        executor.setQueueCapacity(10);
+        executor.setQueueCapacity(100);
         executor.setKeepAliveSeconds(60);
         executor.setThreadNamePrefix("patient-import-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(60);
         var rejectionHandler = new ThreadPoolExecutor.CallerRunsPolicy();
         executor.setRejectedExecutionHandler(rejectionHandler);
         executor.initialize();

@@ -18,9 +18,9 @@ import java.util.regex.Pattern;
 * <p>
 * Esta classe não possui estado e destina-se apenas ao uso estático.
  */
-public final class DateUtils {
+public final class DateUtilsETL {
 
-    private static final Logger log = LoggerFactory.getLogger(DateUtils.class);
+    private static final Logger log = LoggerFactory.getLogger(DateUtilsETL.class);
 
     // Mapeia um padrão de expressão regular para seu DateTimeFormatter correspondente para formatos que contêm apenas datas.
     private static final Map<Pattern, DateTimeFormatter> DATE_FORMATTERS = new LinkedHashMap<>();
@@ -69,7 +69,7 @@ public final class DateUtils {
                 DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm"));        
     }
 
-    private DateUtils() {
+    private DateUtilsETL() {
         throw new UnsupportedOperationException("Utility class cannot be instantiated.");
     }
 
@@ -86,17 +86,15 @@ public final class DateUtils {
             throw new IllegalArgumentException("Date string must not be null or empty");
         }
 
-        String trimmed = dateString.trim();
-        log.debug("Attempting to convert date string: '{}'", trimmed);
+        String trimmed = dateString.trim();        
 
         for (Map.Entry<Pattern, DateTimeFormatter> entry : DATE_FORMATTERS.entrySet()) {
             if (entry.getKey().matcher(trimmed).matches()) {
                 try {
-                    LocalDate result = LocalDate.parse(trimmed, entry.getValue());
-                    log.debug("Successfully parsed date '{}' with format '{}'", trimmed, entry.getValue().toString());
+                    LocalDate result = LocalDate.parse(trimmed, entry.getValue());                    
                     return result;
                 } catch (DateTimeParseException e) {
-                    log.warn("Regex matched but parsing failed for date '{}' with formatter '{}': {}", trimmed, entry.getValue().toString(), e.getMessage());
+                    log.error("Regex matched but parsing failed for date '{}' with formatter '{}': {}", trimmed, entry.getValue().toString(), e.getMessage());
                 }
             }
         }
@@ -108,8 +106,8 @@ public final class DateUtils {
                 LocalDate result = LocalDate.parse(trimmed, formatter);
                 log.debug("Fallback parsing succeeded for date '{}' with format '{}'", trimmed, formatter.toString());
                 return result;
-            } catch (DateTimeParseException ignored) {
-                // continue trying
+            } catch (DateTimeParseException ex) {
+                log.error("Unexpected error", ex.getMessage(), ex);
             }
         }
 
@@ -129,17 +127,15 @@ public final class DateUtils {
             throw new IllegalArgumentException("Date-time string must not be null or empty");
         }
 
-        String trimmed = dateTimeString.trim();
-        log.debug("Attempting to convert date-time string: '{}'", trimmed);
+        String trimmed = dateTimeString.trim();        
 
         for (Map.Entry<Pattern, DateTimeFormatter> entry : DATE_TIME_FORMATTERS.entrySet()) {
             if (entry.getKey().matcher(trimmed).matches()) {
                 try {
-                    LocalDateTime result = LocalDateTime.parse(trimmed, entry.getValue());
-                    log.debug("Successfully parsed date-time '{}' with format '{}'", trimmed, entry.getValue().toString());
+                    LocalDateTime result = LocalDateTime.parse(trimmed, entry.getValue());                    
                     return result;
                 } catch (DateTimeParseException e) {
-                    log.warn("Regex matched but parsing failed for date-time '{}' with formatter '{}': {}", trimmed, entry.getValue().toString(), e.getMessage());
+                    log.error("Regex matched but parsing failed for date-time '{}' with formatter '{}': {}", trimmed, entry.getValue().toString(), e.getMessage());
                 }
             }
         }
@@ -150,8 +146,8 @@ public final class DateUtils {
                 LocalDateTime result = LocalDateTime.parse(trimmed, formatter);
                 log.debug("Fallback parsing succeeded for date-time '{}' with format '{}'", trimmed, formatter.toString());
                 return result;
-            } catch (DateTimeParseException ignored) {
-                // continue
+            } catch (DateTimeParseException ex) {
+                log.error("Unexpected error", ex.getMessage(), ex);
             }
         }
 

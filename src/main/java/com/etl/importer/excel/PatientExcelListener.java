@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 public class PatientExcelListener extends AnalysisEventListener<Map<Integer, String>> {
 
@@ -19,6 +20,9 @@ public class PatientExcelListener extends AnalysisEventListener<Map<Integer, Str
 
     private final PatientImportService patientImportService;
     private final List<ExcelPatientRow> batchList = new ArrayList<>();
+    
+    private int processedCount = 0;
+    private String batchId = UUID.randomUUID().toString();
 
     public PatientExcelListener(PatientImportService patientImportService) {
         this.patientImportService = patientImportService;
@@ -47,7 +51,7 @@ public class PatientExcelListener extends AnalysisEventListener<Map<Integer, Str
 
     private ExcelPatientRow convertMapToExcelPatientRow(Map<Integer, String> data) {
         ExcelPatientRow row = new ExcelPatientRow();
-        row.setSeq(parseInteger(data.get(0)));
+        row.setSeq((data.get(0)));
         row.setContrato(data.get(1));
         row.setFamilia(data.get(2));
         row.setMatriculaFuncional(data.get(3));
@@ -56,20 +60,11 @@ public class PatientExcelListener extends AnalysisEventListener<Map<Integer, Str
         row.setCarteirinha(data.get(6));
         row.setMatriculaSap(data.get(7));
         row.setNome(data.get(8));
-        row.setDataNascimento(data.get(9));
+        row.setDataDeNascimento(data.get(9));
         row.setDataAdesao(data.get(10));
         row.setDataCancelamento(data.get(11));
         row.setTipoDependente(data.get(12));
         return row;
-    }
-
-    private Integer parseInteger(String value) {
-        try {
-            return value != null ? Integer.valueOf(value.trim()) : null;
-        } catch (NumberFormatException e) {
-            log.warn("Could not parse integer from value: {}", value);
-            return null;
-        }
     }
 
     private void flushBatch() {
@@ -77,7 +72,12 @@ public class PatientExcelListener extends AnalysisEventListener<Map<Integer, Str
             log.info("Batch list is empty, skipping flush.");
             return;
         }
+
         List<ExcelPatientRow> batch = new ArrayList<>(batchList);
+        for (ExcelPatientRow row : batch) {
+             row.sanitizeAllIdentifiers();
+        }
+
         try {
             patientImportService.importPatients(batch);
             log.info("Batch of {} patients imported successfully.", batch.size());
@@ -86,5 +86,13 @@ public class PatientExcelListener extends AnalysisEventListener<Map<Integer, Str
         } finally {
             batchList.clear();
         }
+    }
+
+    public int getProcessedCount() {
+        return processedCount;
+    }
+    
+    public String getBatchId() {
+        return batchId;
     }
 }
