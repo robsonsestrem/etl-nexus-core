@@ -70,7 +70,7 @@ public final class DateUtilsETL {
     }
 
     private DateUtilsETL() {
-        throw new UnsupportedOperationException("Utility class cannot be instantiated.");
+        throw new UnsupportedOperationException("Classe utilitária não pode ser instanciada.");
     }
 
     /**
@@ -83,7 +83,7 @@ public final class DateUtilsETL {
      */
     public static LocalDate convertToLocalDate(String dateString) {
         if (dateString == null || dateString.trim().isEmpty()) {
-            throw new IllegalArgumentException("Date string must not be null or empty");
+            throw new IllegalArgumentException("String de data não deve ser nula ou vazia");
         }
 
         String trimmed = dateString.trim();        
@@ -94,24 +94,24 @@ public final class DateUtilsETL {
                     LocalDate result = LocalDate.parse(trimmed, entry.getValue());                    
                     return result;
                 } catch (DateTimeParseException e) {
-                    log.error("Regex matched but parsing failed for date '{}' with formatter '{}': {}", trimmed, entry.getValue().toString(), e.getMessage());
+                    log.error("Regex correspondeu, mas falha ao analisar a data '{}' com o formatador '{}': {}", trimmed, entry.getValue().toString(), e.getMessage());
                 }
             }
         }
 
         // Se nenhuma expressão regular corresponder, tente uma abordagem alternativa: tente todos os formatadores como último recurso.
-        log.debug("No direct regex match for date '{}', trying all date formatters as fallback", trimmed);
+        log.debug("Nenhuma correspondência direta de regex para a data '{}', tentando todos os formatadores como fallback", trimmed);
         for (DateTimeFormatter formatter : DATE_FORMATTERS.values()) {
             try {
                 LocalDate result = LocalDate.parse(trimmed, formatter);
-                log.debug("Fallback parsing succeeded for date '{}' with format '{}'", trimmed, formatter.toString());
+                log.debug("Parsing de fallback bem-sucedido para a data '{}' com o formato '{}'", trimmed, formatter.toString());
                 return result;
             } catch (DateTimeParseException ex) {
-                log.error("Unexpected error", ex.getMessage(), ex);
+                log.error("Erro inesperado", ex.getMessage(), ex);
             }
         }
 
-        throw new IllegalArgumentException("Unable to parse date string: '" + trimmed + "'. Supported formats: dd/MM/yyyy, MM/dd/yyyy, yyyy/MM/dd, yyyy/M/d (critical), yyyy-MM-dd, dd-MM-yyyy");
+        throw new IllegalArgumentException("Não foi possível analisar a string de data: '" + trimmed + "'. Formatos suportados: dd/MM/yyyy, MM/dd/yyyy, yyyy/MM/dd, yyyy/M/d (crítico), yyyy-MM-dd, dd-MM-yyyy");
     }
 
     /**
@@ -124,7 +124,7 @@ public final class DateUtilsETL {
      */
     public static LocalDateTime convertToLocalDateTime(String dateTimeString) {
         if (dateTimeString == null || dateTimeString.trim().isEmpty()) {
-            throw new IllegalArgumentException("Date-time string must not be null or empty");
+            throw new IllegalArgumentException("String de data e hora não deve ser nula ou vazia");
         }
 
         String trimmed = dateTimeString.trim();        
@@ -135,22 +135,22 @@ public final class DateUtilsETL {
                     LocalDateTime result = LocalDateTime.parse(trimmed, entry.getValue());                    
                     return result;
                 } catch (DateTimeParseException e) {
-                    log.error("Regex matched but parsing failed for date-time '{}' with formatter '{}': {}", trimmed, entry.getValue().toString(), e.getMessage());
+                    log.error("Regex correspondeu, mas falha ao analisar a data e hora '{}' com o formatador '{}': {}", trimmed, entry.getValue().toString(), e.getMessage());
                 }
             }
         }
        
-        log.debug("No direct regex match for date-time '{}', trying all formatters as fallback", trimmed);
+        log.debug("Nenhuma correspondência direta de regex para a data e hora '{}', tentando todos os formatadores como fallback", trimmed);
         for (DateTimeFormatter formatter : DATE_TIME_FORMATTERS.values()) {
             try {
                 LocalDateTime result = LocalDateTime.parse(trimmed, formatter);
-                log.debug("Fallback parsing succeeded for date-time '{}' with format '{}'", trimmed, formatter.toString());
+                log.debug("Parsing de fallback bem-sucedido para a data e hora '{}' com o formato '{}'", trimmed, formatter.toString());
                 return result;
             } catch (DateTimeParseException ex) {
-                log.error("Unexpected error", ex.getMessage(), ex);
+                log.error("Erro inesperado", ex.getMessage(), ex);
             }
         }
 
-        throw new IllegalArgumentException("Unable to parse date-time string: '" + trimmed + "'. Supported formats: [date] [time] where time is HH:mm or HH:mm:ss");
+        throw new IllegalArgumentException("Não foi possível analisar a string de data e hora: '" + trimmed + "'. Formatos suportados: [data] [hora] onde a hora é HH:mm ou HH:mm:ss");
     }
 }

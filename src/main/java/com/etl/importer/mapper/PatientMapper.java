@@ -34,8 +34,7 @@ public class PatientMapper {
         names.add(patientName);
 
         String cpf = sanitize(row.getCpf());
-        String carteirinha = sanitize(row.getCarteirinha());
-        String matriculaFuncional = sanitize(row.getMatriculaFuncional());
+        String carteirinha = sanitize(row.getCarteirinha());        
         String chaveUnica = sanitize(row.getChaveUnica());
         String matriculaSap = sanitize(row.getMatriculaSap());
         
@@ -45,9 +44,6 @@ public class PatientMapper {
         }
         if (carteirinha != null && !carteirinha.trim().isEmpty()) {
             identifiers.add(buildIdentifier(IdentifierType.CARTEIRINHA.name(), carteirinha, SystemIdentification.CARTEIRINHA.toString()));
-        }
-        if (matriculaFuncional != null && !matriculaFuncional.trim().isEmpty()) {
-            identifiers.add(buildIdentifier(IdentifierType.PRN.name(), matriculaFuncional, SystemIdentification.MATRICULA_FUNCIONAL.toString()));
         }
         if (chaveUnica != null && !chaveUnica.trim().isEmpty()) {
             identifiers.add(buildIdentifier(IdentifierType.PRN.name(), chaveUnica, SystemIdentification.CHAVE_UNICA.toString()));
@@ -70,9 +66,7 @@ public class PatientMapper {
                 birthDate,
                 names,
                 identifiers
-        );
-
-        log.info("Patient created from Excel row: {}", row);
+        );        
         
         return patient;
     }
