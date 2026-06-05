@@ -16,123 +16,177 @@ import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.scheduling.annotation.Async;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
+import java.util.function.Function;
 
 @Service
 public class PatientImportService {
-    private static final Logger log = LoggerFactory.getLogger(PatientImportService.class);
+    
     private static final int BATCH_SIZE = 200;
+    private static final Logger logProcess = LoggerFactory.getLogger("patient.process");
     private static final Logger logInsert = LoggerFactory.getLogger("patient.insert");
     private static final Logger logUpsert = LoggerFactory.getLogger("patient.upsert");
     private static final Logger logError = LoggerFactory.getLogger("patient.error");
+    private static final Logger logDuplicate = LoggerFactory.getLogger("patient.duplicate");
 
     private final MongoTemplate mongoTemplate;
-    private final MongoConverter mongoConverter;
-    private final ThreadPoolTaskExecutor patientImportExecutor;
+    private final MongoConverter mongoConverter;    
 
-    public PatientImportService(MongoTemplate mongoTemplate, ThreadPoolTaskExecutor patientImportExecutor) {
+    public PatientImportService(MongoTemplate mongoTemplate) {
         this.mongoTemplate = mongoTemplate;
-        this.mongoConverter = mongoTemplate.getConverter();
-        this.patientImportExecutor = patientImportExecutor;
+        this.mongoConverter = mongoTemplate.getConverter();        
     }
 
     @Async("patientImportExecutor")
     public void importPatients(List<ExcelPatientRow> rows) {
-        if (rows == null || rows.isEmpty()) {
-            log.warn("Sem linhas para importar");
+        if (rows == null || rows.isEmpty()) {            
+            this.logPatientProcess(logProcess, "importPatients", "INFO", "N/A", "N/A", "N/A", "Nenhuma linha recebida para importação");
             return;
         }
 
         long startTime = System.currentTimeMillis();
-        log.info("Iniciando importação de {} pacientes", rows.size());
+        this.logPatientProcess(logProcess, "importPatients", "INFO", "N/A", "N/A", "N/A", "Iniciando importação de " + rows.size() + " registros de arquivo Excel");
 
-        int numBatches = (rows.size() + BATCH_SIZE - 1) / BATCH_SIZE;
-        List<CompletableFuture<BatchResult>> futures = new ArrayList<>();
-
-        for (int i = 0; i < numBatches; i++) {
-            int start = i * BATCH_SIZE;
-            int end = Math.min(start + BATCH_SIZE, rows.size());
-            List<ExcelPatientRow> batch = rows.subList(start, end);
-            int batchNumber = i + 1;
-
-            CompletableFuture<BatchResult> future = CompletableFuture.supplyAsync(
-                () -> processBatch(batch, batchNumber, numBatches),
-                patientImportExecutor
-            );
-            futures.add(future);
-        }
+        // Deduplicação global prévia para garantir que o mesmo paciente não apareça em múltiplos batches
+        List<ExcelPatientRow> uniqueRows = deduplicateAll(rows);
+        int numBatches = (uniqueRows.size() + BATCH_SIZE - 1) / BATCH_SIZE;
 
         int totalProcessed = 0;
         int totalErrors = 0;
 
-        for (CompletableFuture<BatchResult> future : futures) {
+        // Processamento sequencial dos batches: elimina race conditions mantendo a thread assíncrona principal
+        for (int i = 0; i < numBatches; i++) {
+            int start = i * BATCH_SIZE;
+            int end = Math.min(start + BATCH_SIZE, uniqueRows.size());
+            List<ExcelPatientRow> batch = uniqueRows.subList(start, end);
+            int batchNumber = i + 1;
+
             try {
-                BatchResult result = future.join();
+                BatchResult result = processBatch(batch, batchNumber, numBatches);
                 totalProcessed += result.processed;
                 totalErrors += result.errors;
-            } catch (Exception e) {                
-                this.logPatientOperation(logError, "CompletableFuture<BatchResult>", "ERROR", "", "", "", "Erro processando batch em paralelo: " + e.getMessage());
-                totalErrors += BATCH_SIZE;
+            } catch (Exception e) {
+                this.logPatientError(logError, "BatchProcessing", "ERROR", "", "", "", "Erro processando batch sequencial: " + e.getMessage());
+                totalErrors += batch.size();
             }
         }
 
         long duration = System.currentTimeMillis() - startTime;
-        log.info("Importação concluída. Total: {}, Processados: {}, Erros: {}, Duração: {}ms", rows.size(), totalProcessed, totalErrors, duration);
+        this.logPatientProcess(logProcess, "importPatients", "INFO", "N/A", "N/A", "N/A", "Importação concluída. Total recebido: " + rows.size() + ", Total únicos: " + uniqueRows.size() + ", Processados: " + totalProcessed + ", Erros: " + totalErrors + ", Duração: " + duration + "ms");
     }
 
     private BatchResult processBatch(List<ExcelPatientRow> batch, int batchNumber, int totalBatches) {
-        List<ExcelPatientRow> uniqueBatch = deduplicateBatch(batch);
         int processedCount = 0;
         int errorCount = 0;
 
-        BulkOperations bulkOps = mongoTemplate.bulkOps(
-            BulkOperations.BulkMode.UNORDERED,
-            Patient.class
-        );
+        // 1. Extração de chaves para o Batch Read
+        Set<String> cpfs = new HashSet<>();
+        Set<String> carteirinhas = new HashSet<>();
+        for (ExcelPatientRow row : batch) {
+            if (row.getCpf() != null) cpfs.add(row.getCpf());
+            if (row.getCarteirinha() != null) carteirinhas.add(row.getCarteirinha());
+        }
 
-        for (ExcelPatientRow row : uniqueBatch) {
+        // 2. Busca em lote (Batch Read) para evitar N+1 (findOne isolado)
+        Map<String, Patient> existingPatientsMap = fetchExistingPatients(cpfs, carteirinhas);
+
+        BulkOperations bulkOps = mongoTemplate.bulkOps(BulkOperations.BulkMode.UNORDERED, Patient.class);
+
+        for (ExcelPatientRow row : batch) {
             try {
                 Patient patient = PatientMapper.toDomain(row);
                 String cpf = extractIdentifierValue(patient.getIdentifiers(), IdentifierType.CPF.name());
                 String carteirinha = extractIdentifierValue(patient.getIdentifiers(), IdentifierType.CARTEIRINHA.name());
+                String patientName = getPatientNameSafely(patient);
+                Criteria criteria = null;
+                Query query = null;
+
+                Patient existingPatient = null;
+                if (cpf != null && existingPatientsMap.containsKey(cpf)) {
+                    existingPatient = existingPatientsMap.get(cpf);
+                } else if (carteirinha != null && existingPatientsMap.containsKey(carteirinha)) {
+                    existingPatient = existingPatientsMap.get(carteirinha);
+                }
 
                 if (cpf != null || carteirinha != null) {
-                    Criteria criteria = buildSearchCriteria(cpf, carteirinha);
-                    Query query = Query.query(criteria);
-                    Update update = buildUpsertUpdate(patient);
+                    criteria = buildSearchCriteria(cpf, carteirinha);
+
+                    if (criteria == null) {
+                        this.logPatientError(logError, "CriteriaBuilding", "ERROR", patientName, cpf, carteirinha, "Não foi possível construir criteria para paciente.");
+                        errorCount++;
+                        continue;
+                    }
+
+                    query = Query.query(criteria);
+                    Update update = buildUpsertUpdate(patient, existingPatient);
+
+                    if (query == null || update == null) {
+                        this.logPatientError(logError, "BulkOperations", "ERROR", patientName, cpf, carteirinha, "Não foi possível construir query ou update para paciente.");
+                        errorCount++;
+                        continue;
+                    }
+
                     bulkOps.upsert(query, update);
 
-                    this.logPatientOperation(logUpsert, "UPSERT", "INFO", patient.getName().get(0).getGiven().get(0), cpf, carteirinha, "Bulk upsert queued :: ProcessedCount = " + processedCount);
+                    this.logPatientOperation(logUpsert, "UPSERT", "INFO", patientName, cpf, carteirinha, "Bulk upsert queued :: ProcessedCount = " + processedCount);
                 } else {
-                    bulkOps.insert(patient);                    
-                    this.logPatientOperation(logInsert, "INSERT", "INFO", patient.getName().get(0).getGiven().get(0), cpf, carteirinha, "Paciente inserido sem CPF/CARTEIRINHA");
+                    bulkOps.insert(patient);
+                    this.logPatientOperation(logInsert, "INSERT", "INFO", patientName, cpf, carteirinha, "Paciente inserido sem CPF/CARTEIRINHA");
                 }
                 processedCount++;
             } catch (Exception e) {
-                errorCount++;                
-                this.logPatientOperation(logError, "BulkOperations", "ERROR", "", "", "", "Erro processando objeto ExcelPatientRow: " + e.getMessage() + PatientMapper.toDomain(row).toString());
+                errorCount++;
+                this.logPatientError(logError, "BulkOperations", "ERROR", "", "", "", "Erro processando objeto ExcelPatientRow: " + e.getMessage());
             }
         }
 
         try {
-            bulkOps.execute();
-            log.info("Batch {}/{} executado com sucesso. Registros: {}, Erros: {}", batchNumber, totalBatches, uniqueBatch.size(), errorCount);
-        } catch (Exception e) {            
-            this.logPatientOperation(logError, "BulkOperations", "ERROR", "", "", "", "Erro executando BulkOperations no batch {}/{} " + batchNumber + "/" + totalBatches + " " + e.getMessage());
-            errorCount += uniqueBatch.size();
+            bulkOps.execute();            
+            this.logPatientProcess(logProcess, "importPatients", "INFO", "N/A", "N/A", "N/A", "Batch " + batchNumber + "/" + totalBatches + " executado com sucesso. Registros: " + batch.size() + ", Erros: " + errorCount);
+        } catch (Exception e) {
+            this.logPatientError(logError, "BulkOperations", "ERROR", "", "", "", "Erro executando BulkOperations no batch {}/{} " + batchNumber + "/" + totalBatches + " " + e.getMessage());
+            errorCount += batch.size();
         }
 
         return new BatchResult(processedCount, errorCount);
     }
 
-    private Update buildUpsertUpdate(Patient patient) {
-        Update update = new Update();
+    private Map<String, Patient> fetchExistingPatients(Set<String> cpfs, Set<String> carteirinhas) {
+        Map<String, Patient> map = new HashMap<>();
+        if (cpfs.isEmpty() && carteirinhas.isEmpty()) {
+            return map;
+        }
 
+        Criteria criteria = new Criteria();
+        List<Criteria> orCriterias = new ArrayList<>();
+
+        if (!cpfs.isEmpty()) {
+            orCriterias.add(Criteria.where("identifiers").elemMatch(
+                    Criteria.where("type").is(IdentifierType.CPF.name()).and("value").in(cpfs)
+            ));
+        }
+        if (!carteirinhas.isEmpty()) {
+            orCriterias.add(Criteria.where("identifiers").elemMatch(
+                    Criteria.where("type").is(IdentifierType.CARTEIRINHA.name()).and("value").in(carteirinhas)
+            ));
+        }
+
+        criteria.orOperator(orCriterias.toArray(new Criteria[0]));
+        List<Patient> patients = mongoTemplate.find(Query.query(criteria), Patient.class);
+
+        for (Patient p : patients) {
+            String cpf = extractIdentifierValue(p.getIdentifiers(), IdentifierType.CPF.name());
+            String cart = extractIdentifierValue(p.getIdentifiers(), IdentifierType.CARTEIRINHA.name());
+            if (cpf != null) map.put(cpf, p);
+            if (cart != null) map.put(cart, p);
+        }
+        return map;
+    }
+
+    private Update buildUpsertUpdate(Patient patient, Patient existingPatient) {
+        Update update = new Update();
         update.setOnInsert("_id", patient.get_id());
         update.setOnInsert("active", true);
         update.setOnInsert("createdAt", new Date());
@@ -141,36 +195,72 @@ public class PatientImportService {
         update.setOnInsert("birthdate", patient.getBirthdate());
         update.setOnInsert("name", patient.getName());
 
-        List<Identifier> identifiers = patient.getIdentifiers();
-        if (identifiers != null && !identifiers.isEmpty()) {
-            List<Document> identifierDocs = identifiers.stream()
-                .map(id -> {
-                    Document doc = new Document("use", NameUse.OFFICIAL.name())
-                        .append("type", id.getType())
-                        .append("value", id.getValue())
-                        .append("system", id.getSystem());
-                    
-                    // Converte o POJO Assigner para Document via MongoConverter
-                    if (id.getAssigner() != null) {
-                        doc.append("assigner", mongoConverter.convertToMongoType(id.getAssigner()));
-                    }
-                    return doc;
-                })
-                .collect(Collectors.toList());
-
-            // $addToSet garante que o identificador só será adicionado se o objeto completo for inédito
-            update.addToSet("identifiers").each(identifierDocs);
+        List<Document> mergedIdentifiers = mergeIdentifiers(existingPatient, patient);
+        if (!mergedIdentifiers.isEmpty()) {
+            // Substitui o array com a versão mesclada e unificada em memória
+            update.set("identifiers", mergedIdentifiers);
         }
 
         return update;
     }
 
-    private List<ExcelPatientRow> deduplicateBatch(List<ExcelPatientRow> batch) {
+    private List<Document> mergeIdentifiers(Patient existingPatient, Patient newPatient) {
+        List<Document> merged = new ArrayList<>();
+        Set<String> seenKeys = new HashSet<>();
+
+        // Chave composta apenas por type, value e assigner.reference
+        Function<Identifier, String> keyGen = id -> {
+            String type = id.getType() != null ? id.getType() : "";
+            String value = id.getValue() != null ? id.getValue() : "";
+            String ref = (id.getAssigner() != null && id.getAssigner().getReference() != null)
+                    ? id.getAssigner().getReference() : "";
+            return type + "|" + value + "|" + ref;
+        };
+
+        // 1. Preserva identificadores existentes
+        if (existingPatient != null && existingPatient.getIdentifiers() != null) {
+            for (Identifier id : existingPatient.getIdentifiers()) {
+                String key = keyGen.apply(id);
+                if (seenKeys.add(key)) {
+                    merged.add(identifierToDocument(id));
+                }
+            }
+        }
+
+        // 2. Adiciona novos apenas se a chave composta for inédita
+        if (newPatient != null && newPatient.getIdentifiers() != null) {
+            for (Identifier id : newPatient.getIdentifiers()) {
+                String key = keyGen.apply(id);
+                if (seenKeys.add(key)) {
+                    merged.add(identifierToDocument(id));
+                }
+            }
+        }
+
+        return merged;
+    }
+
+    private Document identifierToDocument(Identifier id) {
+        Document doc = new Document("use", NameUse.OFFICIAL.name())
+                .append("type", id.getType())
+                .append("value", id.getValue())
+                .append("system", id.getSystem());
+
+        if (id.getAssigner() != null) {
+            doc.append("assigner", mongoConverter.convertToMongoType(id.getAssigner()));
+        }
+        return doc;
+    }
+
+    private List<ExcelPatientRow> deduplicateAll(List<ExcelPatientRow> rows) {
         Map<String, ExcelPatientRow> uniqueMap = new LinkedHashMap<>();
-        for (ExcelPatientRow row : batch) {
+        for (ExcelPatientRow row : rows) {
             String key = row.getCpf() != null ? row.getCpf() : row.getCarteirinha();
             if (key != null) {
-                uniqueMap.putIfAbsent(key, row);
+                ExcelPatientRow existing = uniqueMap.putIfAbsent(key, row);
+                if (existing != null) {
+                    logDuplicate.warn("Linha duplicada por CPF/CARTEIRINHA :: " + existing);
+                }
             } else {
                 uniqueMap.put(UUID.randomUUID().toString(), row);
             }
@@ -181,20 +271,20 @@ public class PatientImportService {
     private Criteria buildSearchCriteria(String cpf, String carteirinha) {
         if (cpf != null && carteirinha != null) {
             return new Criteria().orOperator(
-                Criteria.where("identifiers").elemMatch(
-                    Criteria.where("type").is(IdentifierType.CPF.name()).and("value").is(cpf)
-                ),
-                Criteria.where("identifiers").elemMatch(
-                    Criteria.where("type").is(IdentifierType.CARTEIRINHA.name()).and("value").is(carteirinha)
-                )
+                    Criteria.where("identifiers").elemMatch(
+                            Criteria.where("type").is(IdentifierType.CPF.name()).and("value").is(cpf)
+                    ),
+                    Criteria.where("identifiers").elemMatch(
+                            Criteria.where("type").is(IdentifierType.CARTEIRINHA.name()).and("value").is(carteirinha)
+                    )
             );
         } else if (cpf != null) {
             return Criteria.where("identifiers").elemMatch(
-                Criteria.where("type").is(IdentifierType.CPF.name()).and("value").is(cpf)
+                    Criteria.where("type").is(IdentifierType.CPF.name()).and("value").is(cpf)
             );
         } else {
             return Criteria.where("identifiers").elemMatch(
-                Criteria.where("type").is(IdentifierType.CARTEIRINHA.name()).and("value").is(carteirinha)
+                    Criteria.where("type").is(IdentifierType.CARTEIRINHA.name()).and("value").is(carteirinha)
             );
         }
     }
@@ -207,10 +297,43 @@ public class PatientImportService {
             .orElse(null);
     }
 
+    private String getPatientNameSafely(Patient patient) {
+        if (patient.getName() != null && !patient.getName().isEmpty() && 
+            patient.getName().get(0).getGiven() != null && !patient.getName().get(0).getGiven().isEmpty()) {
+            return patient.getName().get(0).getGiven().get(0);
+        }
+        return "N/A";
+    }
+
     private void logPatientOperation(Logger logger, String operation, String level, String name, String cpf, String carteirinha, String observations) {        
         String json = String.format(
-            "{\"timestamp\":\"%s\",\"level\":\"%s\",\"operation\":\"%s\",\"patientName\":\"%s\",\"cpf\":\"%s\",\"carteirinha\":\"%s\",\"observations\":\"%s\"}",
-            java.time.Instant.now().toString(),
+            "{\"level\":\"%s\",\"operation\":\"%s\",\"patientName\":\"%s\",\"cpf\":\"%s\",\"carteirinha\":\"%s\",\"observations\":\"%s\"}",            
+            level,
+            operation,
+            name != null ? name.replace("\"", "\\\"") : "N/A",
+            cpf != null ? cpf : "N/A",
+            carteirinha != null ? carteirinha : "N/A",
+            observations != null ? observations.replace("\"", "\\\"") : ""
+        );
+        logger.info(json);
+    }
+
+    private void logPatientError(Logger logger, String operation, String level, String name, String cpf, String carteirinha, String observations) {        
+        String json = String.format(
+            "{\"level\":\"%s\",\"operation\":\"%s\",\"patientName\":\"%s\",\"cpf\":\"%s\",\"carteirinha\":\"%s\",\"observations\":\"%s\"}",            
+            level,
+            operation,
+            name != null ? name.replace("\"", "\\\"") : "N/A",
+            cpf != null ? cpf : "N/A",
+            carteirinha != null ? carteirinha : "N/A",
+            observations != null ? observations.replace("\"", "\\\"") : ""
+        );
+        logger.error(json);
+    }
+
+    private void logPatientProcess(Logger logger, String operation, String level, String name, String cpf, String carteirinha, String observations) {        
+        String json = String.format(
+            "{\"level\":\"%s\",\"operation\":\"%s\",\"patientName\":\"%s\",\"cpf\":\"%s\",\"carteirinha\":\"%s\",\"observations\":\"%s\"}",            
             level,
             operation,
             name != null ? name.replace("\"", "\\\"") : "N/A",

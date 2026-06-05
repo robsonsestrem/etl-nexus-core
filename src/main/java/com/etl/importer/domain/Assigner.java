@@ -7,6 +7,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class Assigner {
     private String type = "ORGANIZATION";
-    private String reference = "28b60cde-11f6-44e6-8dba-5463234b2e9b";
-    private String display = "ARCELORMITTAL TUBARÃO";
+    private String reference = "098f5594-1d84-4cfc-aa12-3e4be4077180";
+    private String display = "HEALTHMAP SOLUCOES EM TECNOLOGIA LTDA";
 }

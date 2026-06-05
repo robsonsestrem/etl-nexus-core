@@ -9,7 +9,21 @@
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <pattern>${CONSOLE_LOG_PATTERN}</pattern>
-            <charset>utf8</charset>
+            <charset>UTF-8</charset> 
+        </encoder>
+    </appender>
+    
+    <!-- Appender para PROCESS -->
+    <appender name="PATIENT_PROCESS_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/patient-process.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/archived/patient-process.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>500MB</maxFileSize>
+            <maxHistory>1</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} - %msg%n</pattern>
+            <charset>UTF-8</charset>
         </encoder>
     </appender>
 
@@ -23,6 +37,7 @@
         </rollingPolicy>
         <encoder>
             <pattern>%d{yyyy-MM-dd HH:mm:ss} - %msg%n</pattern>
+            <charset>UTF-8</charset> 
         </encoder>
     </appender>
 
@@ -36,6 +51,7 @@
         </rollingPolicy>
         <encoder>
             <pattern>%d{yyyy-MM-dd HH:mm:ss} - %msg%n</pattern>
+            <charset>UTF-8</charset>
         </encoder>
     </appender>
 
@@ -49,20 +65,43 @@
         </rollingPolicy>
         <encoder>
             <pattern>%d{yyyy-MM-dd HH:mm:ss} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- Appender para DUPLICATES de import de patients -->
+    <appender name="PATIENT_DUPLICATE_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/patient-duplicate.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/archived/patient-duplicate.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>1000MB</maxFileSize>
+            <maxHistory>1</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} - %msg%n</pattern>
+            <charset>UTF-8</charset>
         </encoder>
     </appender>
 
     <!-- Loggers específicos -->
+    <logger name="patient.process" level="INFO" additivity="false">
+        <appender-ref ref="PATIENT_PROCESS_FILE" />
+    </logger>
+
     <logger name="patient.insert" level="INFO" additivity="false">
         <appender-ref ref="PATIENT_INSERT_FILE" />
     </logger>
-    
+       
     <logger name="patient.upsert" level="INFO" additivity="false">
         <appender-ref ref="PATIENT_UPSERT_FILE" />
     </logger>
 
     <logger name="patient.error" level="ERROR" additivity="false">
         <appender-ref ref="PATIENT_ERROR_FILE" />
+    </logger>
+
+    <logger name="patient.duplicate" level="WARN" additivity="false">
+        <appender-ref ref="PATIENT_DUPLICATE_FILE" />
     </logger>
 
     <!-- Root Logger -->
