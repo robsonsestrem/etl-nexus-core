@@ -24,7 +24,12 @@ import java.util.function.Function;
 @Service
 public class PatientImportService {
     
+    /*
+     * Equilibrar o consumo de memória Heap versus a latência de rede e overhead de escrita do MongoDB.
+     * Define um limite de 200 documentos por BulkWrite para otimizar o throughput sem exceder o limite de 16MB por comando do protocolo wire do Mongo.
+     */
     private static final int BATCH_SIZE = 200;
+    
     private static final Logger logProcess = LoggerFactory.getLogger("patient.process");
     private static final Logger logInsert = LoggerFactory.getLogger("patient.insert");
     private static final Logger logUpsert = LoggerFactory.getLogger("patient.upsert");
@@ -39,6 +44,10 @@ public class PatientImportService {
         this.mongoConverter = mongoTemplate.getConverter();        
     }
 
+    /*
+     * Desonerar a thread de requisição (HTTP) para processamentos de longa duração (ETL).
+     * Utiliza a anotação @Async para delegar o processamento a um TaskExecutor dedicado, processando batches sequencialmente para evitar locks excessivos.
+     */
     @Async("patientImportExecutor")
     public void importPatients(List<ExcelPatientRow> rows) {
         if (rows == null || rows.isEmpty()) {            
@@ -77,6 +86,10 @@ public class PatientImportService {
         this.logPatientProcess(logProcess, "importPatients", "INFO", "N/A", "N/A", "N/A", "Importação concluída. Total recebido: " + rows.size() + ", Total únicos: " + uniqueRows.size() + ", Processados: " + totalProcessed + ", Erros: " + totalErrors + ", Duração: " + duration + "ms");
     }
 
+    /*
+     * Reduzir drasticamente o tempo de IO e garantir atomicidade parcial por lote.
+     * Implementa o padrão Batch Read (fetchExistingPatients) para mitigar o problema N+1 e utiliza BulkOperations.upsert para consolidar múltiplas escritas em uma única chamada.
+     */
     private BatchResult processBatch(List<ExcelPatientRow> batch, int batchNumber, int totalBatches) {
         int processedCount = 0;
         int errorCount = 0;
@@ -153,6 +166,10 @@ public class PatientImportService {
         return new BatchResult(processedCount, errorCount);
     }
 
+    /*
+     * Minimizar round-trips ao banco de dados durante a validação de existência.
+     * Agrupa CPFs e Carteirinhas em uma consulta única utilizando $or e $elemMatch, mapeando os resultados em memória para acesso rápido.
+     */
     private Map<String, Patient> fetchExistingPatients(Set<String> cpfs, Set<String> carteirinhas) {
         Map<String, Patient> map = new HashMap<>();
         if (cpfs.isEmpty() && carteirinhas.isEmpty()) {
@@ -185,6 +202,10 @@ public class PatientImportService {
         return map;
     }
 
+    /*
+     * Garantir a idempotência da operação e preservar dados históricos (createdAt).
+     * Utiliza setOnInsert para campos imutáveis pós-criação e set para campos de atualização obrigatória (updatedAt, identifiers).
+     */
     private Update buildUpsertUpdate(Patient patient, Patient existingPatient) {
         Update update = new Update();
         update.setOnInsert("_id", patient.get_id());
@@ -204,6 +225,10 @@ public class PatientImportService {
         return update;
     }
 
+    /*
+     * Evitar a poluição do array de identificadores com entradas redundantes.
+     * Realiza o merge em memória utilizando um Set e uma chave composta (Type|Value|Ref), garantindo unicidade lógica antes da persistência.
+     */
     private List<Document> mergeIdentifiers(Patient existingPatient, Patient newPatient) {
         List<Document> merged = new ArrayList<>();
         Set<String> seenKeys = new HashSet<>();
@@ -240,6 +265,10 @@ public class PatientImportService {
         return merged;
     }
 
+    /*
+     * Converter objetos de domínio para o formato BSON compatível com o driver nativo do MongoDB.
+     * Mapeia manualmente os campos e utiliza o MongoConverter para tipos complexos como 'assigner', garantindo consistência no schema.
+     */
     private Document identifierToDocument(Identifier id) {
         Document doc = new Document("use", NameUse.OFFICIAL.name())
                 .append("type", id.getType())
@@ -252,6 +281,9 @@ public class PatientImportService {
         return doc;
     }
 
+    /*
+     * Eliminar duplicatas óbvias no arquivo de origem antes de iniciar as transações de banco.     
+     */
     private List<ExcelPatientRow> deduplicateAll(List<ExcelPatientRow> rows) {
         Map<String, ExcelPatientRow> uniqueMap = new LinkedHashMap<>();
         for (ExcelPatientRow row : rows) {
@@ -268,6 +300,9 @@ public class PatientImportService {
         return new ArrayList<>(uniqueMap.values());
     }
 
+    /*
+     * Definir a regra de negócio para identificação única do paciente (CPF ou Carteirinha).     
+     */
     private Criteria buildSearchCriteria(String cpf, String carteirinha) {
         if (cpf != null && carteirinha != null) {
             return new Criteria().orOperator(
