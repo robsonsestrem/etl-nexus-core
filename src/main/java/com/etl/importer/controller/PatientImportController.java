@@ -1,11 +1,13 @@
 package com.etl.importer.controller;
 
 import com.alibaba.excel.EasyExcel;
+
 import com.etl.importer.excel.PatientExcelListener;
 import com.etl.importer.service.PatientImportService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -55,9 +57,7 @@ public class PatientImportController {
             EasyExcel.read(tempFilePath.toFile(), listener).sheet().doRead();
 
             int processedCount = listener.getProcessedCount();
-            String batchId = listener.getBatchId();
-
-            log.info("Importação de pacientes concluída com sucesso. Total processado: {}", processedCount);
+            String batchId = listener.getBatchId();            
                         
             var responseBody = new HashMap<String, Object>();
             responseBody.put("success", true);

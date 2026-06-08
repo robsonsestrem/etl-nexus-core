@@ -16,7 +16,7 @@ import java.util.UUID;
 public class PatientExcelListener extends AnalysisEventListener<Map<Integer, String>> {
 
     private static final Logger log = LoggerFactory.getLogger(PatientExcelListener.class);
-    private static final int BATCH_SIZE = 1000;
+    private static final int BATCH_SIZE = 1000000;
 
     private final PatientImportService patientImportService;
     private final List<ExcelPatientRow> batchList = new ArrayList<>();
